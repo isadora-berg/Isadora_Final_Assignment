@@ -1,0 +1,168 @@
+
+#Prediction Assignment Writeup
+
+```{r setup, echo=FALSE}
+# set global chunk options: 
+library(knitr)
+opts_chunk$set(cache=TRUE, autodep = TRUE)
+dep_auto()
+```
+ 
+
+```{r}
+require(caret)
+require(ElemStatLearn)
+require(pgmm)
+require(rpart)
+require(gbm)
+require(lubridate)
+require(forecast)
+require(e1071)
+require(rattle)
+require(party)
+```
+
+```{r}
+#Reading the training dataset
+data = read.csv("C:/Users/Isadora/Desktop/pml-training.csv")
+dim(data)
+str(data)
+```
+
+```{r}
+#Partitioning the training dataset into training, testing and validation
+
+splitSample <- sample(1:3, size=nrow(data), prob=c(0.7,0.15,0.15), replace = TRUE)
+training <- data[splitSample==1,]
+testing <- data[splitSample==2,]
+validation <- data[splitSample==3,]
+dim(training)
+dim(testing)
+dim(validation)
+```
+
+```{r}
+#Checking distribuition of the covariates
+summary(training)
+```
+
+```{r}
+#Selecting only covariates with no nulls and covariates that do not
+#represent some aggregated function (like kurtosis, amplitude, etc)
+
+training <- training[,c("roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x",
+"gyros_belt_y","gyros_belt_z","accel_belt_x","accel_belt_y","accel_belt_z",
+"magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm",
+"total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x",
+"accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z",
+"roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell",
+"gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x",
+"accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y",
+"magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm",
+"gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x",
+"accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y",
+"magnet_forearm_z","classe")]
+```
+##Let`s take a look into the covariates
+```r
+featurePlot(x=training, y=training$classe, plot="pairs")
+```
+
+```{r}
+qplot(roll_belt, classe, data=training)
+```
+
+##Fitting CART
+```{r}
+set.seed(567)
+fit_cart <- train(classe ~., data = training, method = "rpart")
+print(fit_cart$finalModel)
+fancyRpartPlot(fit_cart$finalModel)
+#Accuracy in training
+confusionMatrix(training$classe,predict(fit_cart,training))$overall[1]
+#Resulting accuracy = 0.4978
+#Accuracy in testing
+confusionMatrix(testing$classe,predict(fit_cart,testing))$overall[1]
+#Resulting accuracy = 0.4952
+```
+
+##Fitting Ctree
+```{r}
+set.seed(890)
+fit_ctree <- train(classe ~., data = training, method = "ctree2")
+print(fit_ctree)
+print(fit_ctree$finalModel)
+plot(fit_ctree$finalModel, type = "simple")
+#Accuracy in training
+confusionMatrix(training$classe,predict(fit_ctree,training))$overall[1]
+#Resulting accuracy = 0.3922
+#Accuracy in testing
+confusionMatrix(testing$classe,predict(fit_ctree,testing))$overall[1]
+#Resulting accuracy = 0.3767
+```
+
+##Fitting boosted tree
+```r
+#Cross validation will be performed here in order to avoid overfitting
+set.seed(765)
+traincontrol <- trainControl(method="cv", number=10)
+fit_boost <- train(classe ~., data = training, method = "gbm",
+			 trControl = traincontrol, verbose=FALSE)
+#Could not be performed because R crashed. My pc is too slow and poor
+```
+
+##Fitting random forest
+```r
+#Cross validation will be performed here in order to avoid overfitting
+set.seed(234)
+traincontrol <- trainControl(method="cv", number=10)
+fit_rf <- train(classe ~., data = training, method = "rf", 
+		    trControl = traincontrol, prox=TRUE)
+#Could not be performed because R crashed. My pc is too slow and poor
+```
+
+##Fitting random forest with most important predictors (above 50%) of fitted CART and Ctree
+```{r}
+varImp(fit_cart)
+varImp(fit_ctree)
+```
+
+```r
+#Cross validation will be performed here in order to avoid overfitting
+set.seed(234)
+traincontrol <- trainControl(method="cv", number=10)
+fit_rf <- train(classe ~ pitch_forearm + roll_belt + roll_forearm + magnet_dumbbell_y + accel_forearm_x + magnet_arm_x, 
+			data = training, method = "rf", 
+		    	trControl = traincontrol, ntree = 3, prox=TRUE)
+#Could not be performed because R crashed. My pc is too slow and poor
+```
+
+##Combining predictors of CART and Ctree (which was the only models that could be performed!)
+```{r}
+#Predictions in testing set
+pred_cart <- predict(fit_cart, newdata=testing)
+pred_ctree <- predict(fit_ctree, newdata=testing)
+#Combining predictors
+df <- data.frame(pred_cart,pred_ctree,classe=testing$classe)
+set.seed(579)
+fit_combined <- train(classe ~., data = df, method = "rf")
+pred_combined <- predict(fit_combined, df)
+#Accuracy in testing
+confusionMatrix(testing$classe,predict(fit_combined,testing))$overall[1]
+#Accuracy = 0.5404
+```
+
+##Checking the accuracy of this final model on the validation set
+```{r}
+#Accuracy in validation
+#Remember fit_cart and fit_ctree
+pred_cart_validation <- predict(fit_cart, validation)
+pred_ctree_validation <- predict(fit_ctree, validation)
+validation2 <- data.frame(pred_cart_validation,pred_ctree_validation,classe=validation$classe)
+pred_combined_validation <- predict(fit_combined, validation2)
+confusionMatrix(validation2$classe,predict(fit_combined,validation2))$overall[1]
+#Accuracy = 0.5304
+```
+
+
+
